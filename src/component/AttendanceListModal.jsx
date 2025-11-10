@@ -1,20 +1,55 @@
 import { CloseCircle } from "iconsax-react";
 import { saveAs } from "file-saver";
 import * as XLSX from "xlsx";
+import { useEffect, useState } from "react";
+import { supabase } from "../utils/supabaseClient";
+import toast from "react-hot-toast";
 
 /* eslint-disable react/prop-types */
 const AttendanceListModal = ({ isOpen, selectedClass, onClose }) => {
+  const [attendees, setAttendees] = useState([]);
+
+  // Fetch attendees from Supabase
+  const fetchAttendees = async () => {
+    if (!selectedClass?.id) return;
+
+    const { data, error } = await supabase
+      .from("attendance")
+      .select("*")
+      .eq("class_id", selectedClass.id)
+      .order("timestamp", { ascending: true });
+
+    if (error) {
+      toast.error(`Error fetching attendees: ${error.message}`);
+    } else {
+      setAttendees(data || []);
+    }
+  };
+
+  // Fetch when modal opens or selectedClass changes
+  useEffect(() => {
+    if (isOpen) {
+      fetchAttendees();
+
+      // Auto-refresh every 5 seconds
+      const interval = setInterval(() => {
+        fetchAttendees();
+      }, 5000);
+
+      return () => clearInterval(interval); // Cleanup
+    }
+  }, [isOpen, selectedClass]);
+
   if (!isOpen || !selectedClass) return null;
 
-  // Function to convert the attendees list to CSV
+  // Export to CSV
   const exportToCSV = () => {
-    if (!selectedClass.attendees || selectedClass.attendees.length === 0)
-      return;
+    if (attendees.length === 0) return;
 
     const csvRows = [
-      ["Name", "Matric No", "Attended At"], // CSV headers
-      ...selectedClass.attendees.map((attendee) => [
-        attendee.name,
+      ["Name", "Matric No", "Attended At"],
+      ...attendees.map((attendee) => [
+        attendee.student_name,
         attendee.matric_no,
         new Date(attendee.timestamp).toLocaleString([], {
           year: "numeric",
@@ -31,14 +66,13 @@ const AttendanceListModal = ({ isOpen, selectedClass, onClose }) => {
     saveAs(blob, `attendance_list_${new Date().toISOString()}.csv`);
   };
 
-  // Function to convert the attendees list to Excel
+  // Export to Excel
   const exportToExcel = () => {
-    if (!selectedClass.attendees || selectedClass.attendees.length === 0)
-      return;
+    if (attendees.length === 0) return;
 
     const ws = XLSX.utils.json_to_sheet(
-      selectedClass.attendees.map((attendee) => ({
-        Name: attendee.name,
+      attendees.map((attendee) => ({
+        Name: attendee.student_name,
         Matric_No: attendee.matric_no,
         Attended_At: new Date(attendee.timestamp).toLocaleString([], {
           year: "numeric",
@@ -52,7 +86,6 @@ const AttendanceListModal = ({ isOpen, selectedClass, onClose }) => {
 
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Attendance");
-
     const wbout = XLSX.write(wb, { bookType: "xlsx", type: "array" });
     const blob = new Blob([wbout], {
       type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -66,6 +99,7 @@ const AttendanceListModal = ({ isOpen, selectedClass, onClose }) => {
         <h2 className="text-xl font-bold underline mb-4 text-black">
           Attendance List
         </h2>
+
         <button
           onClick={onClose}
           className="absolute top-2 right-2 hover:text-red-500 text-black"
@@ -90,9 +124,9 @@ const AttendanceListModal = ({ isOpen, selectedClass, onClose }) => {
         </div>
 
         {/* List container */}
-        <div className="overflow-y-auto max-h-[60vh] pr-2 scrollbar-hidden">
-          {selectedClass.attendees && selectedClass.attendees.length > 0 ? (
-            selectedClass.attendees.map((attendee, index) => {
+        <div className="overflow-y-auto max-h-[60vh] pr-2 scrollbar-hidden mt-16">
+          {attendees.length > 0 ? (
+            attendees.map((attendee, index) => {
               const formattedTimestamp = new Date(
                 attendee.timestamp
               ).toLocaleString([], {
@@ -105,7 +139,7 @@ const AttendanceListModal = ({ isOpen, selectedClass, onClose }) => {
 
               return (
                 <div
-                  key={index}
+                  key={attendee.id || index}
                   className="mb-4 border-b pb-2 flex items-start"
                 >
                   <span className="text-black text-sm font-semibold mr-2">
@@ -113,7 +147,7 @@ const AttendanceListModal = ({ isOpen, selectedClass, onClose }) => {
                   </span>
                   <div>
                     <p className="text-black uppercase text-sm font-semibold">
-                      Name: {attendee.name}
+                      Name: {attendee.student_name}
                     </p>
                     <p className="text-black uppercase text-sm font-semibold">
                       Matric No: {attendee.matric_no}
@@ -126,7 +160,9 @@ const AttendanceListModal = ({ isOpen, selectedClass, onClose }) => {
               );
             })
           ) : (
-            <p>No attendees found for this class.</p>
+            <p className="text-black text-center mt-4">
+              No attendees found for this class.
+            </p>
           )}
         </div>
       </div>
